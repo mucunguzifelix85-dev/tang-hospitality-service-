@@ -1,0 +1,6 @@
+{
+  "name": "Restaurant Ordering & Booking",
+  "description": "A comprehensive full-stack dining ordering, booking management, and real-time support chat system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
