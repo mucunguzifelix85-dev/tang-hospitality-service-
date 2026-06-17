@@ -1,4 +1,4 @@
-﻿export type Department = 'Drinks' | 'Food' | 'Hospitality';
+export type Department = 'Drinks' | 'Food' | 'Hospitality';
 
 export const SUBCATEGORIES: Record<Department, string[]> = {
   Drinks: ['Soft Drinks', 'Juices', 'Water', 'Alcoholic Beverages'],
@@ -24,6 +24,7 @@ export interface Product {
   priceUSD: number;
   image: string;
   availability: boolean;
+  quantity?: number;
 }
 
 export interface OrderItem {

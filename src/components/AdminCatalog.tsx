@@ -1,8 +1,7 @@
-﻿import { useState } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { Product, Department, SUBCATEGORIES } from '../types.js';
-import { useLang } from '../i18n/LangContext.js';
 import { formatRWF, formatUSD } from '../lib/currency.js';
-import { Plus, Edit3, Trash2, CheckCircle2, XCircle, AlertTriangle, Image as ImageIcon } from 'lucide-react';
+import { Plus, Pencil, Trash2, ImagePlus, X, PackageOpen, Loader2 } from 'lucide-react';
 
 interface AdminCatalogProps {
   products: Product[];
@@ -11,360 +10,413 @@ interface AdminCatalogProps {
   onDeleteItem: (id: string) => Promise<void>;
 }
 
-const PRESET_IMAGES = [
-  { name: 'Drinks', url: 'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?auto=format&fit=crop&w=600&q=80' },
-  { name: 'Meal', url: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=600&q=80' },
-  { name: 'Dessert', url: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?auto=format&fit=crop&w=600&q=80' },
-  { name: 'Hotel Room', url: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=600&q=80' },
-  { name: 'Event Hall', url: 'https://images.unsplash.com/photo-1505373877841-8d25f7d46678?auto=format&fit=crop&w=600&q=80' },
-  { name: 'Catering', url: 'https://images.unsplash.com/photo-1555244162-803834f70033?auto=format&fit=crop&w=600&q=80' },
-];
+const DEPARTMENTS: Department[] = ['Drinks', 'Food', 'Hospitality'];
+
+type FormState = {
+  name: string;
+  description: string;
+  category: Department;
+  subcategory: string;
+  priceRWF: string;
+  priceUSD: string;
+  quantity: string;
+  image: string;
+};
+
+const EMPTY_FORM: FormState = {
+  name: '',
+  description: '',
+  category: 'Drinks',
+  subcategory: SUBCATEGORIES['Drinks'][0],
+  priceRWF: '',
+  priceUSD: '',
+  quantity: '',
+  image: ''
+};
+
+function resizeImageToBase64(file: File, maxWidth = 900, quality = 0.8): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.width);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('Canvas not supported')); return; }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => reject(new Error('Could not read image'));
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => reject(new Error('Could not read file'));
+    reader.readAsDataURL(file);
+  });
+}
 
 export function AdminCatalog({ products, onCreateItem, onUpdateItem, onDeleteItem }: AdminCatalogProps) {
-  const { t } = useLang();
-  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [filter, setFilter] = useState<'All' | Department>('All');
+  const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-
-  const [name, setName] = useState('');
-  const [category, setCategory] = useState<Department>('Drinks');
-  const [subcategory, setSubcategory] = useState(SUBCATEGORIES['Drinks'][0]);
-  const [description, setDescription] = useState('');
-  const [priceRWF, setPriceRWF] = useState('');
-  const [priceUSD, setPriceUSD] = useState('');
-  const [image, setImage] = useState(PRESET_IMAGES[0].url);
-  const [availability, setAvailability] = useState(true);
-
-  const [loading, setLoading] = useState(false);
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [imageProcessing, setImageProcessing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  function startEdit(prod: Product) {
-    setEditingId(prod.id);
-    setName(prod.name);
-    setCategory(prod.category);
-    setSubcategory(prod.subcategory);
-    setDescription(prod.description);
-    setPriceRWF(prod.priceRWF.toString());
-    setPriceUSD(prod.priceUSD.toString());
-    setImage(prod.image);
-    setAvailability(prod.availability);
-    setIsFormOpen(true);
+  const filtered = useMemo(() => {
+    if (filter === 'All') return products;
+    return products.filter(p => p.category === filter);
+  }, [products, filter]);
+
+  function openAddForm() {
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    setError('');
+    setShowForm(true);
   }
 
-  function resetForm() {
+  function openEditForm(product: Product) {
+    setEditingId(product.id);
+    setForm({
+      name: product.name,
+      description: product.description || '',
+      category: product.category,
+      subcategory: product.subcategory || SUBCATEGORIES[product.category][0],
+      priceRWF: String(product.priceRWF ?? ''),
+      priceUSD: String(product.priceUSD ?? ''),
+      quantity: String(product.quantity ?? 0),
+      image: product.image || ''
+    });
+    setError('');
+    setShowForm(true);
+  }
+
+  function closeForm() {
+    setShowForm(false);
     setEditingId(null);
-    setName('');
-    setCategory('Drinks');
-    setSubcategory(SUBCATEGORIES['Drinks'][0]);
-    setDescription('');
-    setPriceRWF('');
-    setPriceUSD('');
-    setImage(PRESET_IMAGES[0].url);
-    setAvailability(true);
-    setIsFormOpen(false);
+    setForm(EMPTY_FORM);
     setError('');
   }
 
-  function handleCategoryChange(newCat: Department) {
-    setCategory(newCat);
-    setSubcategory(SUBCATEGORIES[newCat][0]);
+  function handleCategoryChange(category: Department) {
+    setForm(prev => ({ ...prev, category, subcategory: SUBCATEGORIES[category][0] }));
+  }
+
+  async function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file.');
+      return;
+    }
+    setImageProcessing(true);
+    setError('');
+    try {
+      const base64 = await resizeImageToBase64(file);
+      setForm(prev => ({ ...prev, image: base64 }));
+    } catch {
+      setError('Could not process that image. Try a different file.');
+    } finally {
+      setImageProcessing(false);
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
 
-    if (!name || !priceRWF || !priceUSD) {
-      setError('Name, RWF price, and USD price are required.');
-      return;
-    }
+    if (!form.name.trim()) { setError('Product name is required.'); return; }
+    const rwf = Number(form.priceRWF);
+    const usd = Number(form.priceUSD);
+    const qty = Number(form.quantity);
+    if (!form.priceRWF || isNaN(rwf) || rwf < 0) { setError('Enter a valid price in RWF.'); return; }
+    if (!form.priceUSD || isNaN(usd) || usd < 0) { setError('Enter a valid price in USD.'); return; }
+    if (form.quantity === '' || isNaN(qty) || qty < 0) { setError('Enter a valid available quantity.'); return; }
 
-    const rwfNum = parseFloat(priceRWF);
-    const usdNum = parseFloat(priceUSD);
-    if (isNaN(rwfNum) || rwfNum <= 0 || isNaN(usdNum) || usdNum <= 0) {
-      setError('Please enter valid positive prices for both currencies.');
-      return;
-    }
+    const payload = {
+      name: form.name.trim(),
+      description: form.description.trim(),
+      category: form.category,
+      subcategory: form.subcategory,
+      priceRWF: rwf,
+      priceUSD: usd,
+      quantity: qty,
+      availability: qty > 0,
+      image: form.image
+    };
 
-    setLoading(true);
+    setSaving(true);
     try {
-      const payload = { name, category, subcategory, description, priceRWF: rwfNum, priceUSD: usdNum, image, availability };
       if (editingId) {
         await onUpdateItem(editingId, payload);
       } else {
-        await onCreateItem(payload);
+        await onCreateItem(payload as Omit<Product, 'id'>);
       }
-      resetForm();
+      closeForm();
     } catch (err: any) {
-      setError(err.message || 'Error saving item.');
+      setError(err.message || 'Could not save product. Please try again.');
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   }
 
-  async function handleDelete(id: string) {
-    if (window.confirm('Permanently delete this item?')) {
-      try {
-        await onDeleteItem(id);
-      } catch (err: any) {
-        alert(err.message || 'Could not delete.');
-      }
-    }
-  }
-
-  async function toggleAvailabilityDirectly(prod: Product) {
+  async function handleDelete(id: string, name: string) {
+    if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    setDeletingId(id);
     try {
-      await onUpdateItem(prod.id, { availability: !prod.availability });
-    } catch (err: any) {
-      alert('Could not toggle availability: ' + err.message);
+      await onDeleteItem(id);
+    } catch {
+      setError('Could not delete that product. Please try again.');
+    } finally {
+      setDeletingId(null);
     }
   }
 
   return (
-    <div id="admin-catalog-root" className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-[var(--cream-card)] p-5 rounded-2xl border border-black/5 shadow-sm">
-        <div>
-          <h2 className="text-lg font-bold font-display text-[var(--ink)]">{t('manageCatalog')}</h2>
-          <p className="text-xs text-[var(--ink)]/50">Add, edit, or remove drinks, food, and hospitality services.</p>
+    <div id="admin-catalog-root" className="space-y-4">
+      <div className="flex justify-between items-center gap-3 flex-wrap bg-[var(--cream-card)] p-4 rounded-2xl border border-black/5 shadow-sm">
+        <div className="flex items-center gap-2 flex-wrap">
+          {(['All', ...DEPARTMENTS] as const).map(dep => (
+            <button
+              key={dep}
+              onClick={() => setFilter(dep)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                filter === dep ? 'bg-[var(--clay)] text-white' : 'bg-black/5 text-[var(--ink)]/60 hover:bg-black/10'
+              }`}
+            >
+              {dep}
+            </button>
+          ))}
         </div>
         <button
-          id="open-create-form"
-          onClick={() => { resetForm(); setIsFormOpen(true); }}
-          className="py-2.5 px-4 bg-[var(--clay)] hover:opacity-90 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+          id="add-product-btn"
+          onClick={openAddForm}
+          className="flex items-center gap-1.5 px-4 py-2 bg-[var(--clay)] hover:opacity-90 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm"
         >
           <Plus className="h-4 w-4" />
-          <span>{t('addNewItem')}</span>
+          Add Product
         </button>
       </div>
 
-      {isFormOpen && (
-        <div id="item-form-modal" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs">
-          <div className="bg-[var(--cream-card)] w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-            <div className="p-5 bg-[var(--ink)] text-white flex justify-between items-center shrink-0">
-              <h3 className="text-base font-bold font-display">{editingId ? t('edit') : t('addNewItem')}</h3>
-              <button onClick={resetForm} className="text-white/60 hover:text-white text-lg font-bold cursor-pointer">&times;</button>
+      {filtered.length === 0 ? (
+        <div className="text-center py-16 bg-[var(--cream-card)] border border-dashed border-black/10 rounded-3xl">
+          <PackageOpen className="h-8 w-8 text-black/15 mx-auto mb-2" />
+          <p className="text-[var(--ink)]/40 text-sm">No products in this category yet.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map(product => {
+            const qty = product.quantity ?? 0;
+            const stockLabel = qty <= 0 ? 'Out of stock' : qty <= 10 ? `${qty} left` : `${qty} in stock`;
+            const stockColor = qty <= 0 ? 'bg-red-100 text-red-700' : qty <= 10 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700';
+
+            return (
+              <div key={product.id} id={`product-card-${product.id}`} className="bg-[var(--cream-card)] rounded-2xl border border-black/5 shadow-sm overflow-hidden flex flex-col">
+                <div className="h-36 bg-black/5 overflow-hidden">
+                  {product.image ? (
+                    <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-[var(--ink)]/20">
+                      <ImagePlus className="h-8 w-8" />
+                    </div>
+                  )}
+                </div>
+                <div className="p-4 flex-1 flex flex-col">
+                  <div className="flex justify-between items-start gap-2">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--clay)]">{product.category} . {product.subcategory}</span>
+                      <h3 className="text-sm font-bold text-[var(--ink)] mt-0.5">{product.name}</h3>
+                    </div>
+                    <span className={`shrink-0 px-2 py-0.5 rounded-lg text-[10px] font-bold ${stockColor}`}>{stockLabel}</span>
+                  </div>
+                  <p className="text-xs text-[var(--ink)]/50 mt-1.5 line-clamp-2 flex-1">{product.description}</p>
+                  <div className="flex justify-between items-end mt-3">
+                    <div>
+                      <div className="font-mono font-bold text-[var(--gold)] text-sm">{formatRWF(product.priceRWF)}</div>
+                      <div className="font-mono text-[10px] text-[var(--ink)]/40">{formatUSD(product.priceUSD)}</div>
+                    </div>
+                    <div className="flex gap-1.5">
+                      <button
+                        id={`edit-product-${product.id}`}
+                        onClick={() => openEditForm(product)}
+                        className="p-2 bg-black/5 hover:bg-black/10 text-[var(--ink)]/60 rounded-xl transition-all cursor-pointer"
+                        title="Edit"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        id={`delete-product-${product.id}`}
+                        onClick={() => handleDelete(product.id, product.name)}
+                        disabled={deletingId === product.id}
+                        className="p-2 bg-red-50 hover:bg-red-100 text-red-500 rounded-xl transition-all cursor-pointer disabled:opacity-40"
+                        title="Delete"
+                      >
+                        {deletingId === product.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={closeForm}>
+          <div
+            className="w-full max-w-lg bg-[var(--cream-card)] rounded-3xl shadow-2xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center px-5 py-4 border-b border-black/5 sticky top-0 bg-[var(--cream-card)] z-10">
+              <h3 className="font-display font-bold text-[var(--ink)]">{editingId ? 'Edit Product' : 'Add Product'}</h3>
+              <button onClick={closeForm} className="text-[var(--ink)]/40 hover:text-[var(--ink)] cursor-pointer">
+                <X className="h-5 w-5" />
+              </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
+            <form id="product-form" onSubmit={handleSubmit} className="p-5 space-y-4">
               {error && (
-                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-1.5">
-                  <AlertTriangle className="h-4 w-4 shrink-0" />
-                  <span>{error}</span>
-                </div>
+                <div className="bg-red-50 border border-red-200 text-red-700 text-xs px-3 py-2 rounded-xl">{error}</div>
               )}
 
               <div>
-                <label className="block text-xs font-bold text-[var(--ink)]/70 uppercase tracking-wider mb-1">{t('itemName')}</label>
-                <input
-                  id="form-item-name"
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full py-2 px-3 border border-black/10 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/15 focus:border-[var(--clay)] transition-all bg-white"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-[var(--ink)]/70 uppercase tracking-wider mb-1">{t('category')}</label>
-                  <select
-                    id="form-item-category"
-                    value={category}
-                    onChange={(e) => handleCategoryChange(e.target.value as Department)}
-                    className="w-full py-2 px-3 border border-black/10 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/15 focus:border-[var(--clay)] transition-all bg-white"
-                  >
-                    <option value="Drinks">Drinks</option>
-                    <option value="Food">Food</option>
-                    <option value="Hospitality">Hospitality Services</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-[var(--ink)]/70 uppercase tracking-wider mb-1">{t('subcategory')}</label>
-                  <select
-                    id="form-item-subcategory"
-                    value={subcategory}
-                    onChange={(e) => setSubcategory(e.target.value)}
-                    className="w-full py-2 px-3 border border-black/10 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/15 focus:border-[var(--clay)] transition-all bg-white"
-                  >
-                    {SUBCATEGORIES[category].map(sub => <option key={sub} value={sub}>{sub}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-[var(--ink)]/70 uppercase tracking-wider mb-1">{t('priceRWF')}</label>
-                  <input
-                    id="form-item-price-rwf"
-                    type="number"
-                    step="1"
-                    min="1"
-                    required
-                    placeholder="5000"
-                    value={priceRWF}
-                    onChange={(e) => setPriceRWF(e.target.value)}
-                    className="w-full py-2 px-3 border border-black/10 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/15 focus:border-[var(--clay)] transition-all bg-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-[var(--ink)]/70 uppercase tracking-wider mb-1">{t('priceUSD')}</label>
-                  <input
-                    id="form-item-price-usd"
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    required
-                    placeholder="4.25"
-                    value={priceUSD}
-                    onChange={(e) => setPriceUSD(e.target.value)}
-                    className="w-full py-2 px-3 border border-black/10 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/15 focus:border-[var(--clay)] transition-all bg-white font-mono"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-[var(--ink)]/70 uppercase tracking-wider mb-1">{t('description')}</label>
-                <textarea
-                  id="form-item-desc"
-                  rows={3}
-                  required
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="w-full p-3 border border-black/10 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/15 focus:border-[var(--clay)] transition-all bg-white"
-                />
-              </div>
-
-              <div>
-                <label className="flex items-center gap-1.5 text-xs font-bold text-[var(--ink)]/70 uppercase tracking-wider mb-1.5">
-                  <ImageIcon className="h-3.5 w-3.5 text-[var(--clay)]" />
-                  {t('image')}
-                </label>
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3">
-                  {PRESET_IMAGES.map(preset => (
-                    <button
-                      type="button"
-                      key={preset.url}
-                      onClick={() => setImage(preset.url)}
-                      className={`relative aspect-[4/3] rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${
-                        image === preset.url ? 'border-[var(--clay)]' : 'border-black/10'
-                      }`}
-                    >
-                      <img src={preset.url} alt={preset.name} className="h-full w-full object-cover" />
-                    </button>
-                  ))}
-                </div>
-                <input
-                  id="form-item-img-url"
-                  type="text"
-                  value={image}
-                  onChange={(e) => setImage(e.target.value)}
-                  className="w-full py-2 px-3 border border-black/10 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/15 focus:border-[var(--clay)] transition-all bg-white font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-[var(--ink)]/70 uppercase tracking-wider mb-1">{t('available')}</label>
-                <div className="flex items-center gap-3 mt-1">
-                  <button
-                    type="button"
-                    onClick={() => setAvailability(true)}
-                    className={`flex-1 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 cursor-pointer transition-all ${
-                      availability ? 'bg-[var(--sage)]/10 border border-[var(--sage)]/30 text-[var(--sage)] font-bold' : 'bg-black/5 border border-black/10 text-[var(--ink)]/50'
-                    }`}
-                  >
-                    <CheckCircle2 className="h-4 w-4" /><span>{t('inStock')}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAvailability(false)}
-                    className={`flex-1 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 cursor-pointer transition-all ${
-                      !availability ? 'bg-red-50 border border-red-200 text-red-700 font-bold' : 'bg-black/5 border border-black/10 text-[var(--ink)]/50'
-                    }`}
-                  >
-                    <XCircle className="h-4 w-4" /><span>{t('outOfStock')}</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-black/5 flex gap-3 shrink-0">
+                <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Product Image</label>
+                <input ref={fileInputRef} id="product-image-input" type="file" accept="image/*" onChange={handleImageSelect} className="hidden" />
                 <button
                   type="button"
-                  onClick={resetForm}
-                  className="flex-1 py-2.5 bg-black/5 hover:bg-black/10 text-[var(--ink)] rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full h-36 rounded-2xl border-2 border-dashed border-black/10 hover:border-[var(--clay)]/40 bg-black/[0.02] flex items-center justify-center overflow-hidden transition-all cursor-pointer"
                 >
-                  {t('cancel')}
+                  {imageProcessing ? (
+                    <Loader2 className="h-6 w-6 text-[var(--clay)] animate-spin" />
+                  ) : form.image ? (
+                    <img src={form.image} alt="Preview" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="text-center text-[var(--ink)]/30">
+                      <ImagePlus className="h-6 w-6 mx-auto mb-1" />
+                      <span className="text-xs font-semibold">Click to upload</span>
+                    </div>
+                  )}
+                </button>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Product Name</label>
+                <input
+                  id="product-name-input"
+                  type="text"
+                  value={form.name}
+                  onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="e.g. Fresh Mango Juice"
+                  className="w-full py-2.5 px-4 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)]"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Description</label>
+                <textarea
+                  id="product-description-input"
+                  value={form.description}
+                  onChange={(e) => setForm(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="Brief description of the product"
+                  rows={3}
+                  className="w-full py-2.5 px-4 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)] resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Category</label>
+                  <select
+                    id="product-category-input"
+                    value={form.category}
+                    onChange={(e) => handleCategoryChange(e.target.value as Department)}
+                    className="w-full py-2.5 px-3 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)]"
+                  >
+                    {DEPARTMENTS.map(dep => <option key={dep} value={dep}>{dep}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Subcategory</label>
+                  <select
+                    id="product-subcategory-input"
+                    value={form.subcategory}
+                    onChange={(e) => setForm(prev => ({ ...prev, subcategory: e.target.value }))}
+                    className="w-full py-2.5 px-3 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)]"
+                  >
+                    {SUBCATEGORIES[form.category].map(sub => <option key={sub} value={sub}>{sub}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Price (RWF)</label>
+                  <input
+                    id="product-price-rwf-input"
+                    type="number"
+                    min="0"
+                    value={form.priceRWF}
+                    onChange={(e) => setForm(prev => ({ ...prev, priceRWF: e.target.value }))}
+                    placeholder="0"
+                    className="w-full py-2.5 px-3 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Price (USD)</label>
+                  <input
+                    id="product-price-usd-input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.priceUSD}
+                    onChange={(e) => setForm(prev => ({ ...prev, priceUSD: e.target.value }))}
+                    placeholder="0.00"
+                    className="w-full py-2.5 px-3 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Stock Qty</label>
+                  <input
+                    id="product-quantity-input"
+                    type="number"
+                    min="0"
+                    value={form.quantity}
+                    onChange={(e) => setForm(prev => ({ ...prev, quantity: e.target.value }))}
+                    placeholder="0"
+                    className="w-full py-2.5 px-3 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeForm}
+                  className="flex-1 py-2.5 bg-black/5 hover:bg-black/10 text-[var(--ink)]/60 rounded-xl text-sm font-bold transition-all cursor-pointer"
+                >
+                  Cancel
                 </button>
                 <button
-                  id="btn-save-item"
+                  id="save-product-btn"
                   type="submit"
-                  disabled={loading}
-                  className="flex-1 py-2.5 bg-[var(--clay)] hover:opacity-90 text-white rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1 cursor-pointer"
+                  disabled={saving || imageProcessing}
+                  className="flex-1 py-2.5 bg-[var(--clay)] hover:opacity-90 text-white rounded-xl text-sm font-bold transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  <CheckCircle2 className="h-4 w-4" />
-                  <span>{loading ? '...' : t('save')}</span>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {editingId ? 'Save Changes' : 'Add Product'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
-      <div id="admin-items-catalogue-list" className="bg-[var(--cream-card)] border border-black/5 rounded-2xl overflow-hidden shadow-sm">
-        {products.length === 0 ? (
-          <div className="text-center py-16 text-[var(--ink)]/40 text-xs">Catalog is empty.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-[var(--ink)] text-white">
-                  <th className="p-4 font-semibold">Image</th>
-                  <th className="p-4 font-semibold">Name</th>
-                  <th className="p-4 font-semibold">Category</th>
-                  <th className="p-4 font-semibold">Price</th>
-                  <th className="p-4 font-semibold">Stock</th>
-                  <th className="p-4 font-semibold text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-black/5 text-[var(--ink)]">
-                {products.map(p => (
-                  <tr id={`catalog-row-${p.id}`} key={p.id} className="hover:bg-black/[0.02] transition-colors">
-                    <td className="p-4"><img src={p.image} alt={p.name} className="h-10 w-14 object-cover bg-black/5 rounded-lg" /></td>
-                    <td className="p-4">
-                      <div className="font-bold text-[var(--ink)]">{p.name}</div>
-                      <div className="text-[10px] text-[var(--ink)]/50">{p.category} . {p.subcategory}</div>
-                    </td>
-                    <td className="p-4"><span className="px-2 py-0.5 bg-black/5 font-bold rounded uppercase tracking-wider text-[9px]">{p.category}</span></td>
-                    <td className="p-4 font-mono font-bold text-[var(--gold)]">
-                      {formatRWF(p.priceRWF)}<br /><span className="text-[10px] text-[var(--ink)]/40">{formatUSD(p.priceUSD)}</span>
-                    </td>
-                    <td className="p-4">
-                      <button
-                        id={`toggle-avail-row-${p.id}`}
-                        onClick={() => toggleAvailabilityDirectly(p)}
-                        className={`px-2.5 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer ${
-                          p.availability ? 'bg-[var(--sage)]/10 text-[var(--sage)] border-[var(--sage)]/30' : 'bg-red-50 text-red-700 border-red-200'
-                        }`}
-                      >
-                        {p.availability ? t('inStock') : t('outOfStock')}
-                      </button>
-                    </td>
-                    <td className="p-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button id={`catalogue-edit-${p.id}`} onClick={() => startEdit(p)} className="p-1.5 bg-black/5 hover:bg-[var(--clay)]/10 hover:text-[var(--clay)] rounded-lg transition-colors cursor-pointer">
-                          <Edit3 className="h-3.5 w-3.5" />
-                        </button>
-                        <button id={`catalogue-delete-${p.id}`} onClick={() => handleDelete(p.id)} className="p-1.5 bg-black/5 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors cursor-pointer">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
