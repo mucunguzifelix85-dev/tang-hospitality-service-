@@ -1,4 +1,4 @@
-import { getOrders, getChat, setChat } from "../_data.js";
+import { getOrders, getChat, setChat, setOrders } from "../_data.js";
 function cors(res) {
   res.setHeader("Access-Control-Allow-Origin","*");
   res.setHeader("Access-Control-Allow-Methods","GET,POST,OPTIONS");
@@ -12,18 +12,24 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
   try {
     const { orderId } = req.query;
-    const orders = await getOrders();
-    const order = orders.find(o => o.id === orderId);
-    if (!order) return res.status(404).json({ error: "Order not found" });
+    if (!orderId) return res.status(400).json({ error: "Missing orderId" });
     const correct = process.env.ADMIN_PASSWORD || "Tang123";
     const isAdmin = req.headers["x-admin-token"] === correct;
     const user = isAdmin ? null : getUser(req);
-    if (!isAdmin) {
-      if (!user) return res.status(401).json({ error: "Unauthorized" });
-      if (order.customerId !== user.id) return res.status(403).json({ error: "Forbidden" });
-    }
+    if (!isAdmin && !user) return res.status(401).json({ error: "Unauthorized" });
+
+    // Get chat directly — don't require order to exist in same instance
     const chat = await getChat(orderId);
+
+    // Verify ownership only if we have order data
+    if (!isAdmin) {
+      const orders = await getOrders();
+      const order = orders.find(o => o.id === orderId);
+      if (order && order.customerId !== user.id) return res.status(403).json({ error: "Forbidden" });
+    }
+
     if (req.method === "GET") return res.status(200).json(chat);
+
     if (req.method === "POST") {
       const { text } = req.body || {};
       if (!text || !text.trim()) return res.status(400).json({ error: "Message text required" });

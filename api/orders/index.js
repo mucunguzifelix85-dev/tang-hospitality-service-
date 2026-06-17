@@ -1,4 +1,4 @@
-import { getProducts, getOrders, setOrders, setChat } from "../_data.js";
+import { getProducts, getOrders, setOrders, getChat, setChat } from "../_data.js";
 function cors(res) {
   res.setHeader("Access-Control-Allow-Origin","*");
   res.setHeader("Access-Control-Allow-Methods","GET,POST,OPTIONS");
@@ -33,19 +33,29 @@ export default async function handler(req, res) {
         const p = products.find(x => x.id === item.productId);
         if (!p) return res.status(400).json({ error: "Product not found: " + item.productId });
         const qty = Number(item.quantity) || 1;
-        totalRWF += p.priceRWF * qty; totalUSD += p.priceUSD * qty;
+        totalRWF += p.priceRWF * qty;
+        totalUSD += p.priceUSD * qty;
         orderItems.push({ productId:p.id, name:p.name, priceRWF:p.priceRWF, priceUSD:p.priceUSD, image:p.image, quantity:qty });
       }
       const id = "ORD-" + Date.now().toString(36).toUpperCase();
-      const order = { id, customerId:user.id, customerName:user.name, items:orderItems, status:"Pending", totalRWF, totalUSD, createdAt:new Date().toISOString(), notes:notes||"" };
+      const order = {
+        id, customerId:user.id, customerName:user.name,
+        items:orderItems, status:"Pending",
+        totalRWF, totalUSD,
+        createdAt:new Date().toISOString(),
+        notes:notes||""
+      };
       const orders = await getOrders();
       orders.push(order);
       await setOrders(orders);
-      await setChat(id, { orderId:id, messages:[{
-        id:"msg-"+Date.now(), senderId:"system", senderName:"Tang Hospitality Service", senderRole:"admin",
+      // Always create chat thread immediately so chat endpoint can find it
+      const welcomeMsg = {
+        id:"msg-"+Date.now(), senderId:"system",
+        senderName:"Tang Hospitality Service", senderRole:"admin",
         text:"Hello "+user.name+"! Your enquiry for order "+id+" has been received. Total: "+Math.round(totalRWF).toLocaleString()+" RWF ($"+totalUSD.toFixed(2)+"). How can we help you?",
         timestamp:new Date().toISOString()
-      }]});
+      };
+      await setChat(id, { orderId:id, messages:[welcomeMsg] });
       return res.status(201).json(order);
     } catch(e) { return res.status(500).json({ error: e.message }); }
   }

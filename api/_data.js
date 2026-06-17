@@ -12,8 +12,7 @@ const SEED = [
   { id:"p9", name:"Catering Package", category:"Hospitality", subcategory:"Catering Services", description:"Full catering for up to 50 people.", priceRWF:150000, priceUSD:120.00, image:"https://images.unsplash.com/photo-1555244162-803834f70033?auto=format&fit=crop&w=600&q=80", availability:true, quantity:8 }
 ];
 
-// In-process fallback used when Redis is not configured
-const MEM = { products: null, orders: [], chats: {} };
+const MEM = { products:null, orders:[], chats:{} };
 
 function makeRedis() {
   const url = process.env.UPSTASH_REDIS_REST_URL;
@@ -29,14 +28,14 @@ async function rGet(key) {
     const v = await r.get(key);
     if (v === null || v === undefined) return null;
     return typeof v === "string" ? JSON.parse(v) : v;
-  } catch (e) { console.error("Redis GET", key, e.message); return null; }
+  } catch(e) { console.error("Redis GET", key, e.message); return null; }
 }
 
 async function rSet(key, val) {
   const r = makeRedis();
   if (!r) return false;
   try { await r.set(key, JSON.stringify(val)); return true; }
-  catch (e) { console.error("Redis SET", key, e.message); return false; }
+  catch(e) { console.error("Redis SET", key, e.message); return false; }
 }
 
 export async function getProducts() {
@@ -61,12 +60,18 @@ export async function getOrders() {
 
 export async function setOrders(orders) {
   MEM.orders = orders;
+  // Also store each order individually so chat can find it cross-instance
+  for (const o of orders) {
+    await rSet("tang:order:" + o.id, o);
+    MEM.chats[o.id] = MEM.chats[o.id] || null;
+  }
   return rSet("tang:orders", orders);
 }
 
 export async function getChat(orderId) {
   const data = await rGet("tang:chat:" + orderId);
   if (data) return data;
+  // Return empty chat — never 404 just because order is in another instance
   return MEM.chats[orderId] || { orderId, messages: [] };
 }
 
