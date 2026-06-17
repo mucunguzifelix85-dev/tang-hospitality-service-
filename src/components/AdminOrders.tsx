@@ -1,4 +1,4 @@
-﻿import { Order } from '../types.js';
+import { Order } from '../types.js';
 import { useLang } from '../i18n/LangContext.js';
 import { formatRWF, formatUSD } from '../lib/currency.js';
 import { MessageSquare, RefreshCw, PackageOpen } from 'lucide-react';
@@ -59,7 +59,19 @@ export function AdminOrders({ orders, onUpdateStatus, onSelectChat, onRefresh, l
                 <p className="mt-2 text-[11px] text-[var(--ink)]/50 italic bg-black/[0.03] p-2 rounded-lg">{order.notes}</p>
               )}
 
+              <button
+                id={`admin-open-chat-${order.id}`}
+                onClick={() => onSelectChat(order.id)}
+                className="mt-3 w-full py-2.5 bg-[var(--clay)] hover:opacity-90 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
+              >
+                <MessageSquare className="h-4 w-4" />
+                <span>Chat with {order.customerName}</span>
+              </button>
+
               <div className="mt-3 flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-bold text-[var(--ink)]/40 uppercase tracking-wider mr-1">
+                  {t('orderStatus')}:
+                </span>
                 <div className="flex gap-1 bg-black/5 p-1 rounded-xl">
                   {STATUSES.map(status => (
                     <button
@@ -74,14 +86,6 @@ export function AdminOrders({ orders, onUpdateStatus, onSelectChat, onRefresh, l
                     </button>
                   ))}
                 </div>
-                <button
-                  id={`admin-open-chat-${order.id}`}
-                  onClick={() => onSelectChat(order.id)}
-                  className="px-3 py-1.5 bg-[var(--clay)]/10 hover:bg-[var(--clay)]/15 text-[var(--clay)] rounded-xl text-[10px] font-bold flex items-center gap-1.5 transition-all cursor-pointer ml-auto"
-                >
-                  <MessageSquare className="h-3.5 w-3.5" />
-                  {t('chat')}
-                </button>
               </div>
             </div>
           ))}
