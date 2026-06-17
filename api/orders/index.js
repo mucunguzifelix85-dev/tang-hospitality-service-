@@ -1,5 +1,4 @@
-﻿const data = require('../_data.js');
-const { v4: uuidv4 } = require('uuid');
+const data = require('../_data.js');
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -26,15 +25,16 @@ module.exports = async function handler(req, res) {
     let totalRWF = 0, totalUSD = 0;
     const orderItems = items.map(item => {
       const p = data.products.find(x => x.id === item.productId);
-      if (!p) throw new Error('Product not found: ' + item.productId);
+      if (!p) throw new Error('Product not found');
       const qty = Number(item.quantity) || 1;
       totalRWF += p.priceRWF * qty;
       totalUSD += p.priceUSD * qty;
       return { productId: p.id, name: p.name, priceRWF: p.priceRWF, priceUSD: p.priceUSD, image: p.image, quantity: qty };
     });
-    const order = { id: 'ORD-' + uuidv4().slice(0,8).toUpperCase(), customerId: user.id, customerName: user.name, items: orderItems, status: 'Pending', totalRWF, totalUSD, createdAt: new Date().toISOString(), notes: notes || '' };
+    const id = 'ORD-' + Date.now().toString(36).toUpperCase();
+    const order = { id, customerId: user.id, customerName: user.name, items: orderItems, status: 'Pending', totalRWF, totalUSD, createdAt: new Date().toISOString(), notes: notes || '' };
     data.orders.push(order);
-    data.chats[order.id] = { orderId: order.id, messages: [{ id: uuidv4(), senderId: 'system', senderName: 'Tang Hospitality Service', senderRole: 'admin', text: `Thank you ${user.name}! Order ${order.id} received. Total: ${Math.round(totalRWF).toLocaleString()} RWF ($${totalUSD.toFixed(2)}). We will confirm shortly.`, timestamp: new Date().toISOString() }] };
+    data.chats[id] = { orderId: id, messages: [{ id: 'msg-' + Date.now(), senderId: 'system', senderName: 'Tang Hospitality Service', senderRole: 'admin', text: 'Thank you ' + user.name + '! Order ' + id + ' received. Total: ' + Math.round(totalRWF).toLocaleString() + ' RWF ($' + totalUSD.toFixed(2) + '). We will confirm shortly.', timestamp: new Date().toISOString() }] };
     return res.status(201).json(order);
   }
   return res.status(405).json({ error: 'Method not allowed' });

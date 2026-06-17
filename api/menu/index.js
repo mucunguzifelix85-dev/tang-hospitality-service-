@@ -1,4 +1,4 @@
-﻿const data = require('../_data.js');
+const data = require('../_data.js');
 const { v4: uuidv4 } = require('uuid');
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -14,7 +14,7 @@ module.exports = async function handler(req, res) {
     if (req.headers['x-admin-token'] !== correct) return res.status(401).json({ error: 'Unauthorized' });
     const { name, category, subcategory, description, priceRWF, priceUSD, image, availability } = req.body;
     if (!name || !priceRWF || !priceUSD) return res.status(400).json({ error: 'Missing required fields' });
-    const product = { id: uuidv4(), name, category, subcategory, description, priceRWF: Number(priceRWF), priceUSD: Number(priceUSD), image: image || '', availability: availability !== false };
+    const product = { id: 'p' + Date.now(), name, category, subcategory, description, priceRWF: Number(priceRWF), priceUSD: Number(priceUSD), image: image || '', availability: availability !== false };
     data.products.push(product);
     return res.status(201).json(product);
   }

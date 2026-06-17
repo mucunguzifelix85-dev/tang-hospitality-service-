@@ -1,4 +1,3 @@
-﻿const { v4: uuidv4 } = require('uuid');
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -15,7 +14,8 @@ module.exports = async function handler(req, res) {
   }
   if (req.method === 'POST') {
     const { name } = req.body;
-    const user = { id: uuidv4(), name: name || 'Guest', email: '', role: 'customer' };
+    const id = 'u-' + Date.now().toString(36);
+    const user = { id, name: name || 'Guest', email: '', role: 'customer' };
     const token = Buffer.from(JSON.stringify(user)).toString('base64');
     return res.status(200).json({ user, token });
   }
