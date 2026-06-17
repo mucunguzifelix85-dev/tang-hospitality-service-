@@ -150,7 +150,9 @@ export function SupportChat({ orderId, order, isAdmin, currentUserId, onClose }:
           </div>
         ) : (
           messages.map((msg) => {
-            const isMine = isAdmin ? msg.senderRole === 'admin' : msg.senderId === currentUserId;
+            const isMine = isAdmin
+              ? msg.senderRole === 'admin'
+              : msg.senderRole === 'customer' && msg.senderId === currentUserId;
             const isSystem = msg.senderId === 'system';
             const isPending = msg.id.startsWith('pending-');
 
@@ -170,11 +172,16 @@ export function SupportChat({ orderId, order, isAdmin, currentUserId, onClose }:
                 className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
               >
                 <div
-                  className={`relative max-w-[78%] sm:max-w-[65%] px-3 py-2 rounded-2xl text-[13px] leading-relaxed shadow-sm ${
+                  className={`relative max-w-[78%] sm:max-w-[65%] px-3 py-2 rounded-2xl text-[13px] leading-relaxed shadow-md border ${
                     isMine
-                      ? 'bg-[#DCF8C6] text-[#111] rounded-tr-sm'
-                      : 'bg-white text-[#111] rounded-tl-sm'
+                      ? 'rounded-tr-sm'
+                      : 'rounded-tl-sm'
                   } ${isPending ? 'opacity-60' : ''}`}
+                  style={{
+                    background: isMine ? '#D9FDD3' : '#FFFFFF',
+                    borderColor: isMine ? '#B6F0AA' : '#E5E5E5',
+                    color: '#111111'
+                  }}
                 >
                   {!isMine && (
                     <div className="text-[10.5px] font-bold mb-0.5" style={{ color: 'var(--clay)' }}>
@@ -190,7 +197,7 @@ export function SupportChat({ orderId, order, isAdmin, currentUserId, onClose }:
                       isPending ? (
                         <Check className="h-3 w-3 text-black/30" />
                       ) : (
-                        <CheckCheck className="h-3 w-3 text-[#4FC3F7]" />
+                        <CheckCheck className="h-3 w-3 text-[#53BDEB]" />
                       )
                     )}
                   </div>
