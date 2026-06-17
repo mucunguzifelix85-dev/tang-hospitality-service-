@@ -1,4 +1,4 @@
-﻿import { User, Product, Order, Chat, Message } from '../types.js';
+import { User, Product, Order, Chat, Message } from '../types.js';
 
 const API_BASE = '/api';
 
@@ -44,7 +44,46 @@ export function setAdminToken(token: string | null) {
   }
 }
 
+let ensureIdentityPromise: Promise<User> | null = null;
+
+export async function ensureIdentity(): Promise<User> {
+  const existingUser = getStoredUser();
+  const existingToken = getStoredToken();
+  if (existingUser && existingToken) {
+    return existingUser;
+  }
+
+  if (ensureIdentityPromise) {
+    return ensureIdentityPromise;
+  }
+
+  ensureIdentityPromise = (async () => {
+    const res = await fetch(`${API_BASE}/auth/me`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Guest' })
+    });
+    if (!res.ok) {
+      throw new Error('Could not create guest session');
+    }
+    const result = await res.json();
+    setStoredToken(result.token);
+    setStoredUser(result.user);
+    return result.user as User;
+  })();
+
+  try {
+    return await ensureIdentityPromise;
+  } finally {
+    ensureIdentityPromise = null;
+  }
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  if (!getStoredToken()) {
+    await ensureIdentity();
+  }
+
   const token = getStoredToken();
   const adminToken = getAdminToken();
   const headers = new Headers(options.headers || {});
@@ -65,10 +104,15 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers
   });
 
-  const body = await response.json();
+  let body: any;
+  try {
+    body = await response.json();
+  } catch {
+    body = {};
+  }
 
   if (!response.ok) {
-    throw new Error(body.error || 'Network query failure');
+    throw new Error(body.error || `Request failed (${response.status})`);
   }
 
   return body as T;
