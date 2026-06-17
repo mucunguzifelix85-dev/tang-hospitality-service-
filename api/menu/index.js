@@ -9,9 +9,8 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method === "GET") {
     try {
-      const products = await getProducts();
-      return res.status(200).json(products);
-    } catch (e) {
+      return res.status(200).json(await getProducts());
+    } catch(e) {
       return res.status(500).json({ error: "Could not load products: " + e.message });
     }
   }
@@ -24,8 +23,8 @@ export default async function handler(req, res) {
       if (!priceRWF || isNaN(Number(priceRWF))) return res.status(400).json({ error: "Valid RWF price is required." });
       if (!priceUSD || isNaN(Number(priceUSD))) return res.status(400).json({ error: "Valid USD price is required." });
       const imgStr = image || "";
-      if (imgStr.length > 900000) return res.status(400).json({ error: "Image is too large. Please use a smaller image (under 700KB)." });
-      const qty = quantity !== undefined && quantity !== "" ? Math.max(0, Number(quantity)) : 0;
+      if (imgStr.length > 900000) return res.status(400).json({ error: "Image too large. Use a smaller image (under 700KB)." });
+      const qty = (quantity !== undefined && quantity !== "") ? Math.max(0, Number(quantity)) : 0;
       const product = {
         id: "p" + Date.now(),
         name: name.trim(),
@@ -40,10 +39,9 @@ export default async function handler(req, res) {
       };
       const products = await getProducts();
       products.push(product);
-      const saved = await setProducts(products);
-      if (!saved) return res.status(500).json({ error: "Product created but could not be saved to database. Check Redis credentials." });
+      await setProducts(products);
       return res.status(201).json(product);
-    } catch (e) {
+    } catch(e) {
       return res.status(500).json({ error: "Server error: " + e.message });
     }
   }

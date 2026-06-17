@@ -18,9 +18,8 @@ export default async function handler(req, res) {
     if (req.method === "PUT") {
       const { name, category, subcategory, description, priceRWF, priceUSD, image, quantity } = req.body || {};
       const cur = products[idx];
-      const qty = quantity !== undefined && quantity !== "" ? Math.max(0, Number(quantity)) : cur.quantity ?? 0;
-      products[idx] = {
-        ...cur,
+      const qty = (quantity !== undefined && quantity !== "") ? Math.max(0, Number(quantity)) : cur.quantity ?? 0;
+      products[idx] = { ...cur,
         ...(name !== undefined && { name: name.trim() }),
         ...(category !== undefined && { category }),
         ...(subcategory !== undefined && { subcategory }),
@@ -28,8 +27,7 @@ export default async function handler(req, res) {
         ...(priceRWF !== undefined && { priceRWF: Number(priceRWF) }),
         ...(priceUSD !== undefined && { priceUSD: Number(priceUSD) }),
         ...(image !== undefined && { image }),
-        quantity: qty,
-        availability: qty > 0
+        quantity: qty, availability: qty > 0
       };
       await setProducts(products);
       return res.status(200).json(products[idx]);
@@ -39,7 +37,7 @@ export default async function handler(req, res) {
       await setProducts(products);
       return res.status(200).json({ success: true, message: "Product deleted" });
     }
-  } catch (e) {
+  } catch(e) {
     return res.status(500).json({ error: "Server error: " + e.message });
   }
   return res.status(405).json({ error: "Method not allowed" });

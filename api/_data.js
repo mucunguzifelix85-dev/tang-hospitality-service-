@@ -1,15 +1,5 @@
 import { Redis } from "@upstash/redis";
 
-let redis;
-try {
-  redis = new Redis({
-    url: process.env.UPSTASH_REDIS_REST_URL,
-    token: process.env.UPSTASH_REDIS_REST_TOKEN,
-  });
-} catch (e) {
-  console.error("Redis init failed:", e.message);
-}
-
 const SEED = [
   { id:"p1", name:"Fanta Orange", category:"Drinks", subcategory:"Soft Drinks", description:"Chilled Fanta Orange, 500ml.", priceRWF:1500, priceUSD:1.20, image:"https://images.unsplash.com/photo-1551538827-9c037cb4f32a?auto=format&fit=crop&w=600&q=80", availability:true, quantity:80 },
   { id:"p2", name:"Fresh Mango Juice", category:"Drinks", subcategory:"Juices", description:"Freshly squeezed mango juice, served cold.", priceRWF:2500, priceUSD:2.00, image:"https://images.unsplash.com/photo-1600271886742-f049cd451bba?auto=format&fit=crop&w=600&q=80", availability:true, quantity:50 },
@@ -22,58 +12,65 @@ const SEED = [
   { id:"p9", name:"Catering Package", category:"Hospitality", subcategory:"Catering Services", description:"Full catering for up to 50 people.", priceRWF:150000, priceUSD:120.00, image:"https://images.unsplash.com/photo-1555244162-803834f70033?auto=format&fit=crop&w=600&q=80", availability:true, quantity:8 }
 ];
 
-async function safeGet(key) {
-  try {
-    const raw = await redis.get(key);
-    if (!raw) return null;
-    return typeof raw === "string" ? JSON.parse(raw) : raw;
-  } catch (e) {
-    console.error("Redis GET error:", key, e.message);
-    return null;
-  }
+// In-process fallback used when Redis is not configured
+const MEM = { products: null, orders: [], chats: {} };
+
+function makeRedis() {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token || url.includes("YOUR-REAL") || token.includes("YOUR-REAL")) return null;
+  try { return new Redis({ url, token }); } catch { return null; }
 }
 
-async function safeSet(key, value) {
+async function rGet(key) {
+  const r = makeRedis();
+  if (!r) return null;
   try {
-    await redis.set(key, JSON.stringify(value));
-    return true;
-  } catch (e) {
-    console.error("Redis SET error:", key, e.message);
-    return false;
-  }
+    const v = await r.get(key);
+    if (v === null || v === undefined) return null;
+    return typeof v === "string" ? JSON.parse(v) : v;
+  } catch (e) { console.error("Redis GET", key, e.message); return null; }
+}
+
+async function rSet(key, val) {
+  const r = makeRedis();
+  if (!r) return false;
+  try { await r.set(key, JSON.stringify(val)); return true; }
+  catch (e) { console.error("Redis SET", key, e.message); return false; }
 }
 
 export async function getProducts() {
-  if (!redis) return SEED;
-  const data = await safeGet("tang:products");
-  if (!data) {
-    await safeSet("tang:products", SEED);
-    return SEED;
-  }
-  return data;
+  const data = await rGet("tang:products");
+  if (data) return data;
+  if (MEM.products) return MEM.products;
+  MEM.products = JSON.parse(JSON.stringify(SEED));
+  await rSet("tang:products", MEM.products);
+  return MEM.products;
 }
 
 export async function setProducts(products) {
-  if (!redis) return false;
-  return safeSet("tang:products", products);
+  MEM.products = products;
+  return rSet("tang:products", products);
 }
 
 export async function getOrders() {
-  if (!redis) return [];
-  return (await safeGet("tang:orders")) || [];
+  const data = await rGet("tang:orders");
+  if (data) return data;
+  return MEM.orders;
 }
 
 export async function setOrders(orders) {
-  if (!redis) return false;
-  return safeSet("tang:orders", orders);
+  MEM.orders = orders;
+  return rSet("tang:orders", orders);
 }
 
 export async function getChat(orderId) {
-  if (!redis) return { orderId, messages: [] };
-  return (await safeGet("tang:chat:" + orderId)) || { orderId, messages: [] };
+  const data = await rGet("tang:chat:" + orderId);
+  if (data) return data;
+  return MEM.chats[orderId] || { orderId, messages: [] };
 }
 
 export async function setChat(orderId, chat) {
-  if (!redis) return false;
-  return safeSet("tang:chat:" + orderId, chat);
+  MEM.chats[orderId] = chat;
+  return rSet("tang:chat:" + orderId, chat);
 }
