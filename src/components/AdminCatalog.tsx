@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef } from 'react';
 import { Product, Department, SUBCATEGORIES } from '../types.js';
 import { formatRWF, formatUSD } from '../lib/currency.js';
-import { Plus, Pencil, Trash2, ImagePlus, X, PackageOpen, Loader2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, ImagePlus, X, PackageOpen, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface AdminCatalogProps {
   products: Product[];
@@ -24,17 +24,12 @@ type FormState = {
 };
 
 const EMPTY_FORM: FormState = {
-  name: '',
-  description: '',
-  category: 'Drinks',
+  name: '', description: '', category: 'Drinks',
   subcategory: SUBCATEGORIES['Drinks'][0],
-  priceRWF: '',
-  priceUSD: '',
-  quantity: '',
-  image: ''
+  priceRWF: '', priceUSD: '', quantity: '', image: ''
 };
 
-function resizeImageToBase64(file: File, maxWidth = 900, quality = 0.8): Promise<string> {
+function resizeImageToBase64(file: File, maxWidth = 800, quality = 0.75): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -47,7 +42,13 @@ function resizeImageToBase64(file: File, maxWidth = 900, quality = 0.8): Promise
         const ctx = canvas.getContext('2d');
         if (!ctx) { reject(new Error('Canvas not supported')); return; }
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', quality));
+        const result = canvas.toDataURL('image/jpeg', quality);
+        if (result.length > 900000) {
+          const result2 = canvas.toDataURL('image/jpeg', 0.5);
+          resolve(result2);
+        } else {
+          resolve(result);
+        }
       };
       img.onerror = () => reject(new Error('Could not read image'));
       img.src = e.target?.result as string;
@@ -65,6 +66,7 @@ export function AdminCatalog({ products, onCreateItem, onUpdateItem, onDeleteIte
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [imageProcessing, setImageProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -73,34 +75,29 @@ export function AdminCatalog({ products, onCreateItem, onUpdateItem, onDeleteIte
     return products.filter(p => p.category === filter);
   }, [products, filter]);
 
+  function showSuccess(msg: string) {
+    setSuccessMsg(msg);
+    setTimeout(() => setSuccessMsg(''), 3500);
+  }
+
   function openAddForm() {
-    setEditingId(null);
-    setForm(EMPTY_FORM);
-    setError('');
-    setShowForm(true);
+    setEditingId(null); setForm(EMPTY_FORM); setError(''); setSuccessMsg(''); setShowForm(true);
   }
 
   function openEditForm(product: Product) {
     setEditingId(product.id);
     setForm({
-      name: product.name,
-      description: product.description || '',
+      name: product.name, description: product.description || '',
       category: product.category,
       subcategory: product.subcategory || SUBCATEGORIES[product.category][0],
-      priceRWF: String(product.priceRWF ?? ''),
-      priceUSD: String(product.priceUSD ?? ''),
-      quantity: String(product.quantity ?? 0),
-      image: product.image || ''
+      priceRWF: String(product.priceRWF ?? ''), priceUSD: String(product.priceUSD ?? ''),
+      quantity: String(product.quantity ?? 0), image: product.image || ''
     });
-    setError('');
-    setShowForm(true);
+    setError(''); setSuccessMsg(''); setShowForm(true);
   }
 
   function closeForm() {
-    setShowForm(false);
-    setEditingId(null);
-    setForm(EMPTY_FORM);
-    setError('');
+    setShowForm(false); setEditingId(null); setForm(EMPTY_FORM); setError(''); setSuccessMsg('');
   }
 
   function handleCategoryChange(category: Department) {
@@ -110,56 +107,47 @@ export function AdminCatalog({ products, onCreateItem, onUpdateItem, onDeleteIte
   async function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setError('Please select an image file.');
-      return;
-    }
-    setImageProcessing(true);
-    setError('');
+    if (!file.type.startsWith('image/')) { setError('Please select an image file.'); return; }
+    setImageProcessing(true); setError('');
     try {
       const base64 = await resizeImageToBase64(file);
       setForm(prev => ({ ...prev, image: base64 }));
     } catch {
-      setError('Could not process that image. Try a different file.');
+      setError('Could not process image. Try a different file.');
     } finally {
       setImageProcessing(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError('');
-
+    setError(''); setSuccessMsg('');
     if (!form.name.trim()) { setError('Product name is required.'); return; }
     const rwf = Number(form.priceRWF);
     const usd = Number(form.priceUSD);
     const qty = Number(form.quantity);
-    if (!form.priceRWF || isNaN(rwf) || rwf < 0) { setError('Enter a valid price in RWF.'); return; }
-    if (!form.priceUSD || isNaN(usd) || usd < 0) { setError('Enter a valid price in USD.'); return; }
-    if (form.quantity === '' || isNaN(qty) || qty < 0) { setError('Enter a valid available quantity.'); return; }
-
+    if (!form.priceRWF || isNaN(rwf) || rwf < 0) { setError('Enter a valid RWF price.'); return; }
+    if (!form.priceUSD || isNaN(usd) || usd < 0) { setError('Enter a valid USD price.'); return; }
+    if (form.quantity === '' || isNaN(qty) || qty < 0) { setError('Enter a valid quantity.'); return; }
     const payload = {
-      name: form.name.trim(),
-      description: form.description.trim(),
-      category: form.category,
-      subcategory: form.subcategory,
-      priceRWF: rwf,
-      priceUSD: usd,
-      quantity: qty,
-      availability: qty > 0,
-      image: form.image
+      name: form.name.trim(), description: form.description.trim(),
+      category: form.category, subcategory: form.subcategory,
+      priceRWF: rwf, priceUSD: usd, quantity: qty,
+      availability: qty > 0, image: form.image
     };
-
     setSaving(true);
     try {
       if (editingId) {
         await onUpdateItem(editingId, payload);
+        showSuccess('Product updated successfully!');
       } else {
         await onCreateItem(payload as Omit<Product, 'id'>);
+        showSuccess('Product added successfully!');
       }
       closeForm();
     } catch (err: any) {
-      setError(err.message || 'Could not save product. Please try again.');
+      setError(err.message || 'Could not save product. Check your connection and try again.');
     } finally {
       setSaving(false);
     }
@@ -170,8 +158,9 @@ export function AdminCatalog({ products, onCreateItem, onUpdateItem, onDeleteIte
     setDeletingId(id);
     try {
       await onDeleteItem(id);
+      showSuccess('Product deleted.');
     } catch {
-      setError('Could not delete that product. Please try again.');
+      setError('Could not delete product. Please try again.');
     } finally {
       setDeletingId(null);
     }
@@ -179,27 +168,25 @@ export function AdminCatalog({ products, onCreateItem, onUpdateItem, onDeleteIte
 
   return (
     <div id="admin-catalog-root" className="space-y-4">
+      {successMsg && (
+        <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl text-sm font-semibold">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          {successMsg}
+        </div>
+      )}
+
       <div className="flex justify-between items-center gap-3 flex-wrap bg-[var(--cream-card)] p-4 rounded-2xl border border-black/5 shadow-sm">
         <div className="flex items-center gap-2 flex-wrap">
           {(['All', ...DEPARTMENTS] as const).map(dep => (
-            <button
-              key={dep}
-              onClick={() => setFilter(dep)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                filter === dep ? 'bg-[var(--clay)] text-white' : 'bg-black/5 text-[var(--ink)]/60 hover:bg-black/10'
-              }`}
-            >
+            <button key={dep} onClick={() => setFilter(dep)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${filter === dep ? 'bg-[var(--clay)] text-white' : 'bg-black/5 text-[var(--ink)]/60 hover:bg-black/10'}`}>
               {dep}
             </button>
           ))}
         </div>
-        <button
-          id="add-product-btn"
-          onClick={openAddForm}
-          className="flex items-center gap-1.5 px-4 py-2 bg-[var(--clay)] hover:opacity-90 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm"
-        >
-          <Plus className="h-4 w-4" />
-          Add Product
+        <button id="add-product-btn" onClick={openAddForm}
+          className="flex items-center gap-1.5 px-4 py-2 bg-[var(--clay)] hover:opacity-90 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm">
+          <Plus className="h-4 w-4" /> Add Product
         </button>
       </div>
 
@@ -214,7 +201,6 @@ export function AdminCatalog({ products, onCreateItem, onUpdateItem, onDeleteIte
             const qty = product.quantity ?? 0;
             const stockLabel = qty <= 0 ? 'Out of stock' : qty <= 10 ? `${qty} left` : `${qty} in stock`;
             const stockColor = qty <= 0 ? 'bg-red-100 text-red-700' : qty <= 10 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700';
-
             return (
               <div key={product.id} id={`product-card-${product.id}`} className="bg-[var(--cream-card)] rounded-2xl border border-black/5 shadow-sm overflow-hidden flex flex-col">
                 <div className="h-36 bg-black/5 overflow-hidden">
@@ -229,7 +215,7 @@ export function AdminCatalog({ products, onCreateItem, onUpdateItem, onDeleteIte
                 <div className="p-4 flex-1 flex flex-col">
                   <div className="flex justify-between items-start gap-2">
                     <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--clay)]">{product.category} . {product.subcategory}</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--clay)]">{product.category} · {product.subcategory}</span>
                       <h3 className="text-sm font-bold text-[var(--ink)] mt-0.5">{product.name}</h3>
                     </div>
                     <span className={`shrink-0 px-2 py-0.5 rounded-lg text-[10px] font-bold ${stockColor}`}>{stockLabel}</span>
@@ -241,21 +227,13 @@ export function AdminCatalog({ products, onCreateItem, onUpdateItem, onDeleteIte
                       <div className="font-mono text-[10px] text-[var(--ink)]/40">{formatUSD(product.priceUSD)}</div>
                     </div>
                     <div className="flex gap-1.5">
-                      <button
-                        id={`edit-product-${product.id}`}
-                        onClick={() => openEditForm(product)}
-                        className="p-2 bg-black/5 hover:bg-black/10 text-[var(--ink)]/60 rounded-xl transition-all cursor-pointer"
-                        title="Edit"
-                      >
+                      <button id={`edit-product-${product.id}`} onClick={() => openEditForm(product)}
+                        className="p-2 bg-black/5 hover:bg-black/10 text-[var(--ink)]/60 rounded-xl transition-all cursor-pointer" title="Edit">
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
-                      <button
-                        id={`delete-product-${product.id}`}
-                        onClick={() => handleDelete(product.id, product.name)}
+                      <button id={`delete-product-${product.id}`} onClick={() => handleDelete(product.id, product.name)}
                         disabled={deletingId === product.id}
-                        className="p-2 bg-red-50 hover:bg-red-100 text-red-500 rounded-xl transition-all cursor-pointer disabled:opacity-40"
-                        title="Delete"
-                      >
+                        className="p-2 bg-red-50 hover:bg-red-100 text-red-500 rounded-xl transition-all cursor-pointer disabled:opacity-40" title="Delete">
                         {deletingId === product.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                       </button>
                     </div>
@@ -269,87 +247,84 @@ export function AdminCatalog({ products, onCreateItem, onUpdateItem, onDeleteIte
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={closeForm}>
-          <div
-            className="w-full max-w-lg bg-[var(--cream-card)] rounded-3xl shadow-2xl max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="w-full max-w-lg bg-[var(--cream-card)] rounded-3xl shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center px-5 py-4 border-b border-black/5 sticky top-0 bg-[var(--cream-card)] z-10">
               <h3 className="font-display font-bold text-[var(--ink)]">{editingId ? 'Edit Product' : 'Add Product'}</h3>
-              <button onClick={closeForm} className="text-[var(--ink)]/40 hover:text-[var(--ink)] cursor-pointer">
-                <X className="h-5 w-5" />
-              </button>
+              <button onClick={closeForm} className="text-[var(--ink)]/40 hover:text-[var(--ink)] cursor-pointer"><X className="h-5 w-5" /></button>
             </div>
 
             <form id="product-form" onSubmit={handleSubmit} className="p-5 space-y-4">
               {error && (
-                <div className="bg-red-50 border border-red-200 text-red-700 text-xs px-3 py-2 rounded-xl">{error}</div>
+                <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-xs px-3 py-2.5 rounded-xl">
+                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>{error}</span>
+                </div>
+              )}
+              {successMsg && (
+                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs px-3 py-2.5 rounded-xl">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <span>{successMsg}</span>
+                </div>
               )}
 
               <div>
                 <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Product Image</label>
                 <input ref={fileInputRef} id="product-image-input" type="file" accept="image/*" onChange={handleImageSelect} className="hidden" />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full h-36 rounded-2xl border-2 border-dashed border-black/10 hover:border-[var(--clay)]/40 bg-black/[0.02] flex items-center justify-center overflow-hidden transition-all cursor-pointer"
-                >
+                <button type="button" onClick={() => fileInputRef.current?.click()}
+                  className="w-full h-36 rounded-2xl border-2 border-dashed border-black/10 hover:border-[var(--clay)]/40 bg-black/[0.02] flex items-center justify-center overflow-hidden transition-all cursor-pointer">
                   {imageProcessing ? (
-                    <Loader2 className="h-6 w-6 text-[var(--clay)] animate-spin" />
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="h-6 w-6 text-[var(--clay)] animate-spin" />
+                      <span className="text-xs text-[var(--ink)]/40">Processing image...</span>
+                    </div>
                   ) : form.image ? (
                     <img src={form.image} alt="Preview" className="w-full h-full object-cover" />
                   ) : (
                     <div className="text-center text-[var(--ink)]/30">
                       <ImagePlus className="h-6 w-6 mx-auto mb-1" />
-                      <span className="text-xs font-semibold">Click to upload</span>
+                      <span className="text-xs font-semibold">Click to upload image</span>
+                      <p className="text-[10px] mt-0.5">JPG, PNG, WebP — auto-compressed</p>
                     </div>
                   )}
                 </button>
+                {form.image && (
+                  <button type="button" onClick={() => setForm(prev => ({ ...prev, image: '' }))}
+                    className="mt-1 text-[10px] text-red-500 hover:text-red-700 cursor-pointer">
+                    Remove image
+                  </button>
+                )}
               </div>
 
               <div>
-                <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Product Name</label>
-                <input
-                  id="product-name-input"
-                  type="text"
-                  value={form.name}
-                  onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))}
+                <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Product Name *</label>
+                <input id="product-name-input" type="text" value={form.name}
+                  onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))}
                   placeholder="e.g. Fresh Mango Juice"
-                  className="w-full py-2.5 px-4 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)]"
-                />
+                  className="w-full py-2.5 px-4 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)]" />
               </div>
 
               <div>
                 <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Description</label>
-                <textarea
-                  id="product-description-input"
-                  value={form.description}
-                  onChange={(e) => setForm(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="Brief description of the product"
-                  rows={3}
-                  className="w-full py-2.5 px-4 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)] resize-none"
-                />
+                <textarea id="product-description-input" value={form.description}
+                  onChange={e => setForm(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="Brief description of the product" rows={3}
+                  className="w-full py-2.5 px-4 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)] resize-none" />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Category</label>
-                  <select
-                    id="product-category-input"
-                    value={form.category}
-                    onChange={(e) => handleCategoryChange(e.target.value as Department)}
-                    className="w-full py-2.5 px-3 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)]"
-                  >
+                  <select id="product-category-input" value={form.category}
+                    onChange={e => handleCategoryChange(e.target.value as Department)}
+                    className="w-full py-2.5 px-3 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)]">
                     {DEPARTMENTS.map(dep => <option key={dep} value={dep}>{dep}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Subcategory</label>
-                  <select
-                    id="product-subcategory-input"
-                    value={form.subcategory}
-                    onChange={(e) => setForm(prev => ({ ...prev, subcategory: e.target.value }))}
-                    className="w-full py-2.5 px-3 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)]"
-                  >
+                  <select id="product-subcategory-input" value={form.subcategory}
+                    onChange={e => setForm(prev => ({ ...prev, subcategory: e.target.value }))}
+                    className="w-full py-2.5 px-3 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)]">
                     {SUBCATEGORIES[form.category].map(sub => <option key={sub} value={sub}>{sub}</option>)}
                   </select>
                 </div>
@@ -357,60 +332,37 @@ export function AdminCatalog({ products, onCreateItem, onUpdateItem, onDeleteIte
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Price (RWF)</label>
-                  <input
-                    id="product-price-rwf-input"
-                    type="number"
-                    min="0"
-                    value={form.priceRWF}
-                    onChange={(e) => setForm(prev => ({ ...prev, priceRWF: e.target.value }))}
+                  <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Price (RWF) *</label>
+                  <input id="product-price-rwf-input" type="number" min="0" value={form.priceRWF}
+                    onChange={e => setForm(prev => ({ ...prev, priceRWF: e.target.value }))}
                     placeholder="0"
-                    className="w-full py-2.5 px-3 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)]"
-                  />
+                    className="w-full py-2.5 px-3 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)]" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Price (USD)</label>
-                  <input
-                    id="product-price-usd-input"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.priceUSD}
-                    onChange={(e) => setForm(prev => ({ ...prev, priceUSD: e.target.value }))}
+                  <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Price (USD) *</label>
+                  <input id="product-price-usd-input" type="number" min="0" step="0.01" value={form.priceUSD}
+                    onChange={e => setForm(prev => ({ ...prev, priceUSD: e.target.value }))}
                     placeholder="0.00"
-                    className="w-full py-2.5 px-3 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)]"
-                  />
+                    className="w-full py-2.5 px-3 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)]" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Stock Qty</label>
-                  <input
-                    id="product-quantity-input"
-                    type="number"
-                    min="0"
-                    value={form.quantity}
-                    onChange={(e) => setForm(prev => ({ ...prev, quantity: e.target.value }))}
+                  <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--ink)]/40 mb-1.5 block">Stock Qty *</label>
+                  <input id="product-quantity-input" type="number" min="0" value={form.quantity}
+                    onChange={e => setForm(prev => ({ ...prev, quantity: e.target.value }))}
                     placeholder="0"
-                    className="w-full py-2.5 px-3 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)]"
-                  />
+                    className="w-full py-2.5 px-3 border border-black/10 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--clay)]/20 focus:border-[var(--clay)]" />
                 </div>
               </div>
 
               <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={closeForm}
-                  className="flex-1 py-2.5 bg-black/5 hover:bg-black/10 text-[var(--ink)]/60 rounded-xl text-sm font-bold transition-all cursor-pointer"
-                >
+                <button type="button" onClick={closeForm}
+                  className="flex-1 py-2.5 bg-black/5 hover:bg-black/10 text-[var(--ink)]/60 rounded-xl text-sm font-bold transition-all cursor-pointer">
                   Cancel
                 </button>
-                <button
-                  id="save-product-btn"
-                  type="submit"
-                  disabled={saving || imageProcessing}
-                  className="flex-1 py-2.5 bg-[var(--clay)] hover:opacity-90 text-white rounded-xl text-sm font-bold transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
-                >
+                <button id="save-product-btn" type="submit" disabled={saving || imageProcessing}
+                  className="flex-1 py-2.5 bg-[var(--clay)] hover:opacity-90 text-white rounded-xl text-sm font-bold transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2">
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  {editingId ? 'Save Changes' : 'Add Product'}
+                  {saving ? 'Saving...' : editingId ? 'Save Changes' : 'Add Product'}
                 </button>
               </div>
             </form>
