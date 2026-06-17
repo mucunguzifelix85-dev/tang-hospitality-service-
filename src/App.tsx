@@ -7,11 +7,11 @@ import { AdminCatalog } from './components/AdminCatalog.js';
 import { AdminOrders } from './components/AdminOrders.js';
 import { AdminUnlockModal } from './components/AdminUnlockModal.js';
 import { SupportChat } from './components/SupportChat.js';
-import { api, setStoredToken, setStoredUser, getStoredUser, getStoredToken, getAdminToken, setAdminToken } from './lib/api.js';
+import { api, ensureIdentity, setStoredToken, setStoredUser, getStoredUser, getStoredToken, getAdminToken, setAdminToken } from './lib/api.js';
 import { Product, Order, Department } from './types.js';
 import {
   ShoppingBag, Globe, ShieldCheck, LogOut, ChefHat,
-  UtensilsCrossed, Users, ArrowRight, Wine, Building2, MessageSquare
+  Users, ArrowRight, MessageSquare
 } from 'lucide-react';
 
 function RoleSelectionScreen({ onSelectClient, onSelectAdmin }: {
@@ -96,12 +96,7 @@ function RoleSelectionScreen({ onSelectClient, onSelectAdmin }: {
         </div>
 
         <div className="flex items-center gap-8 mt-12 text-center">
-          {[
-            { icon: 'wine', label: 'Drinks' },
-            { icon: 'food', label: 'Food' },
-            { icon: 'hotel', label: 'Hospitality' },
-            { icon: 'chat', label: 'Live Chat' },
-          ].map(({ label }) => (
+          {['Drinks', 'Food', 'Hospitality', 'Live Chat'].map((label) => (
             <div key={label} className="flex flex-col items-center gap-1.5">
               <div className="h-10 w-10 rounded-xl bg-black/5 flex items-center justify-center text-[var(--ink)]/40">
                 <MessageSquare className="h-5 w-5" />
@@ -143,22 +138,13 @@ function AppInner() {
 
   useEffect(() => {
     async function initGuest() {
-      let user = getStoredUser();
-      let token = getStoredToken();
-      if (!user || !token) {
-        try {
-          const res = await fetch('/api/auth/me', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: 'Guest' })
-          });
-          const data = await res.json();
-          setStoredToken(data.token);
-          setStoredUser(data.user);
-          user = data.user;
-        } catch {}
+      try {
+        // Always call ensureIdentity on load — creates or restores guest session
+        const user = await ensureIdentity();
+        setCurrentUser(user);
+      } catch (e) {
+        console.error('Guest identity failed:', e);
       }
-      setCurrentUser(user);
     }
     initGuest();
     loadProducts();
@@ -250,10 +236,34 @@ function AppInner() {
   }
 
   async function handleChatToBook(product: Product) {
-    const items = [{ productId: product.id, quantity: 1 }];
-    const order = await api.createOrder(items, 'Direct chat booking');
-    await api.sendChatMessage(order.id, 'Hello! I am interested in "' + product.name + '". Can you help me?');
-    loadOrders();
+    // Guarantee a valid identity token before doing anything
+    let user = currentUser;
+    if (!user) {
+      try {
+        user = await ensureIdentity();
+        setCurrentUser(user);
+      } catch (err) {
+        throw new Error('Could not create guest session. Please refresh and try again.');
+      }
+    }
+
+    // Create order (this also auto-creates the chat thread on the server)
+    let order: Order;
+    try {
+      order = await api.createOrder([{ productId: product.id, quantity: 1 }], 'Chat enquiry');
+    } catch (err: any) {
+      console.error('createOrder failed:', err);
+      throw new Error(err.message || 'Could not create order. Please try again.');
+    }
+
+    // Send opening message
+    try {
+      await api.sendChatMessage(order.id, `Hello! I am interested in "${product.name}". Can you help me?`);
+    } catch {
+      // Non-fatal: chat thread still opens even if the first message fails
+    }
+
+    await loadOrders();
     setActiveChatOrderId(order.id);
     setCustomerTab('orders');
   }
