@@ -1,0 +1,37 @@
+﻿const { v4: uuidv4 } = require('uuid');
+
+function cors(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+}
+
+module.exports = async function handler(req, res) {
+  cors(res);
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
+  if (req.method === 'GET') {
+    const auth = req.headers['authorization'];
+    if (!auth) return res.status(401).json({ error: 'No token' });
+    try {
+      const user = JSON.parse(Buffer.from(auth.replace('Bearer ', ''), 'base64').toString('utf8'));
+      return res.status(200).json(user);
+    } catch {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+  }
+
+  if (req.method === 'POST') {
+    const { name } = req.body;
+    const user = {
+      id: uuidv4(),
+      name: name || 'Guest',
+      email: '',
+      role: 'customer'
+    };
+    const token = Buffer.from(JSON.stringify(user)).toString('base64');
+    return res.status(200).json({ user, token });
+  }
+
+  return res.status(405).json({ error: 'Method not allowed' });
+};

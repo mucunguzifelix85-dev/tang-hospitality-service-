@@ -1,22 +1,21 @@
-import { User, Product, Order, Chat, Message } from '../types.js';
+﻿import { User, Product, Order, Chat, Message } from '../types.js';
 
 const API_BASE = '/api';
 
-// Get authenticating token from local storage
 export function getStoredToken(): string | null {
-  return localStorage.getItem('bistro_auth_token');
+  return localStorage.getItem('tang_auth_token');
 }
 
 export function setStoredToken(token: string | null) {
   if (token) {
-    localStorage.setItem('bistro_auth_token', token);
+    localStorage.setItem('tang_auth_token', token);
   } else {
-    localStorage.removeItem('bistro_auth_token');
+    localStorage.removeItem('tang_auth_token');
   }
 }
 
 export function getStoredUser(): User | null {
-  const data = localStorage.getItem('bistro_auth_user');
+  const data = localStorage.getItem('tang_auth_user');
   if (!data) return null;
   try {
     return JSON.parse(data);
@@ -27,21 +26,36 @@ export function getStoredUser(): User | null {
 
 export function setStoredUser(user: User | null) {
   if (user) {
-    localStorage.setItem('bistro_auth_user', JSON.stringify(user));
+    localStorage.setItem('tang_auth_user', JSON.stringify(user));
   } else {
-    localStorage.removeItem('bistro_auth_user');
+    localStorage.removeItem('tang_auth_user');
   }
 }
 
-// Global request fetcher with Authorization token automatically injected
+export function getAdminToken(): string | null {
+  return localStorage.getItem('tang_admin_token');
+}
+
+export function setAdminToken(token: string | null) {
+  if (token) {
+    localStorage.setItem('tang_admin_token', token);
+  } else {
+    localStorage.removeItem('tang_admin_token');
+  }
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = getStoredToken();
+  const adminToken = getAdminToken();
   const headers = new Headers(options.headers || {});
-  
+
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
-  
+  if (adminToken) {
+    headers.set('X-Admin-Token', adminToken);
+  }
+
   if (options.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
@@ -60,29 +74,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   return body as T;
 }
 
-// API Methods
 export const api = {
-  // Auth
-  async login(email: string, password: string): Promise<{ user: User; token: string }> {
-    const res = await request<{ user: User; token: string }>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password })
-    });
-    setStoredToken(res.token);
-    setStoredUser(res.user);
-    return res;
-  },
-
-  async register(name: string, email: string, password: string, role: 'admin' | 'customer' = 'customer'): Promise<{ user: User; token: string }> {
-    const res = await request<{ user: User; token: string }>('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({ name, email, password, role })
-    });
-    setStoredToken(res.token);
-    setStoredUser(res.user);
-    return res;
-  },
-
   async getMe(): Promise<User> {
     return request<User>('/auth/me');
   },
@@ -92,7 +84,19 @@ export const api = {
     setStoredUser(null);
   },
 
-  // Menu (Products)
+  async unlockAdmin(password: string): Promise<{ token: string }> {
+    const res = await request<{ token: string }>('/admin/unlock', {
+      method: 'POST',
+      body: JSON.stringify({ password })
+    });
+    setAdminToken(res.token);
+    return res;
+  },
+
+  lockAdmin() {
+    setAdminToken(null);
+  },
+
   async getMenu(): Promise<Product[]> {
     return request<Product[]>('/menu');
   },
@@ -117,7 +121,6 @@ export const api = {
     });
   },
 
-  // Orders
   async getOrders(): Promise<Order[]> {
     return request<Order[]>('/orders');
   },
@@ -136,7 +139,6 @@ export const api = {
     });
   },
 
-  // Chats
   async getChatMessages(orderId: string): Promise<Chat> {
     return request<Chat>(`/chat/${orderId}`);
   },

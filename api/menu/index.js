@@ -1,0 +1,40 @@
+﻿const data = require('../_data.js');
+const { v4: uuidv4 } = require('uuid');
+
+function cors(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Admin-Token');
+}
+
+module.exports = async function handler(req, res) {
+  cors(res);
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
+  if (req.method === 'GET') {
+    return res.status(200).json(data.products);
+  }
+
+  if (req.method === 'POST') {
+    const adminToken = req.headers['x-admin-token'];
+    if (adminToken !== process.env.ADMIN_PASSWORD) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const { name, category, subcategory, description, priceRWF, priceUSD, image, availability } = req.body;
+    if (!name || !category || !priceRWF || !priceUSD) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    const product = {
+      id: uuidv4(),
+      name, category, subcategory, description,
+      priceRWF: Number(priceRWF),
+      priceUSD: Number(priceUSD),
+      image: image || '',
+      availability: availability !== false
+    };
+    data.products.push(product);
+    return res.status(201).json(product);
+  }
+
+  return res.status(405).json({ error: 'Method not allowed' });
+};

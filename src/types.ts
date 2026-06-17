@@ -1,3 +1,11 @@
+﻿export type Department = 'Drinks' | 'Food' | 'Hospitality';
+
+export const SUBCATEGORIES: Record<Department, string[]> = {
+  Drinks: ['Soft Drinks', 'Juices', 'Water', 'Alcoholic Beverages'],
+  Food: ['Meals', 'Fast Food', 'Snacks', 'Desserts'],
+  Hospitality: ['Hotel Services', 'Catering Services', 'Event Services', 'Room Services', 'Other Services']
+};
+
 export interface User {
   id: string;
   name: string;
@@ -9,17 +17,20 @@ export interface User {
 export interface Product {
   id: string;
   name: string;
-  category: string; // 'Food' | 'Drinks' | 'Desserts' | 'Specials'
+  category: Department;
+  subcategory: string;
   description: string;
-  price: number;
+  priceRWF: number;
+  priceUSD: number;
   image: string;
-  availability: boolean; // true = In Stock, false = Out of Stock
+  availability: boolean;
 }
 
 export interface OrderItem {
   productId: string;
   name: string;
-  price: number;
+  priceRWF: number;
+  priceUSD: number;
   image: string;
   quantity: number;
 }
@@ -30,7 +41,8 @@ export interface Order {
   customerName: string;
   items: OrderItem[];
   status: 'Pending' | 'Confirmed' | 'Delivered';
-  total: number;
+  totalRWF: number;
+  totalUSD: number;
   createdAt: string;
   notes?: string;
 }
